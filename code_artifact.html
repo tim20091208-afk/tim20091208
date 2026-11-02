@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <!-- 設定字元集為 UTF-8 -->
+    <meta charset="UTF-8">
+    <!-- 設定響應式視埠，確保在移動設備與桌面設備上顯示良好 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>火山熔岩寫實風格俄羅斯方塊</title>
+    <!-- 引入 Tailwind CSS 庫用於快速佈局 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Google 字體 Orbitron 與 Noto Sans TC -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    
+    <style>
+        /* 設定全域字體風格 */
+        body {
+            font-family: 'Orbitron', 'Noto Sans TC', sans-serif;
+            background-color: #050202;
+            color: #e5e7eb;
+            overflow-x: hidden;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        /* 動態岩漿背景 Canvas */
+        #lava-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            filter: contrast(120%) brightness(90%);
+        }
+
+        /* 遊戲主容器的光暈與石質邊框 */
+        .game-panel {
+            background: rgba(18, 10, 10, 0.85);
+            backdrop-filter: blur(12px);
+            border: 2px solid #5a1e14;
+            box-shadow: 0 0 35px rgba(255, 68, 0, 0.35), inset 0 0 15px rgba(0, 0, 0, 0.9);
+            border-radius: 12px;
+        }
+
+        /* 石頭質感面板 */
+        .stone-card {
+            background: linear-gradient(145deg, #1f1412, #0d0807);
+            border: 1px solid #3d1b15;
+            box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.8), inset 0 0 5px rgba(255, 85, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        /* 熾熱熔岩文字效果 */
+        .lava-text {
+            color: #fff;
+            text-shadow: 
+                0 0 5px #ff4500,
+                0 0 10px #ff4500,
+                0 0 20px #ff0000,
+                0 0 40px #990000;
+        }
+
+        /* 熔岩質感按鈕 */
+        .lava-btn {
+            background: linear-gradient(180deg, #8b0000 0%, #4a0000 100%);
+            border: 1px solid #ff4500;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        .lava-btn:hover {
+            background: linear-gradient(180deg, #b30000 0%, #660000 100%);
+            box-shadow: 0 0 15px rgba(255, 69, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .lava-btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.8);
+        }
+
+        /* 遊戲畫布邊框 */
+        #tetris-canvas {
+            border: 3px solid #2a120e;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.9), 0 0 15px rgba(255, 69, 0, 0.2);
+            background-color: rgba(5, 2, 2, 0.95);
+        }
+
+        /* 自訂滾動條 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #050202;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4a0000;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen relative p-2 sm:p-4">
+
+    <!-- 背景畫布：負責渲染即時動態岩漿與火花粒子 -->
+    <canvas id="lava-bg"></canvas>
+
+    <!-- 遊戲主要佈局外殼 -->
+    <div class="game-panel p-4 sm:p-6 max-w-4xl w-full flex flex-col md:flex-row gap-6 items-center justify-center relative z-10">
+        
+        <!-- 左側面板：遊戲標題、儲存塊(Hold Panel)、控制說明 -->
+        <div class="flex flex-col gap-4 w-full md:w-1/4 order-2 md:order-1">
+            <!-- 標題區域 -->
+            <div class="text-center md:text-left">
+                <h1 class="text-2xl sm:text-3xl font-black tracking-wider lava-text uppercase">熔岩方塊</h1>
+                <p class="text-xs text-orange-400 font-bold tracking-widest mt-1">VOLCANIC TETRIS</p>
+            </div>
+
+            <!-- 保留方塊 (Hold Piece) -->
+            <div class="stone-card p-3 flex flex-col items-center">
+                <span class="text-xs font-bold text-gray-400 mb-2 tracking-wider">保留方塊 (HOLD)</span>
+                <canvas id="hold-canvas" width="100" height="100" class="bg-black/50 rounded border border-red-950/50"></canvas>
+            </div>
+
+            <!-- 遊戲統計資訊：得分、等級、消除行數 -->
+            <div class="stone-card p-4 space-y-3">
+                <div>
+                    <div class="text-xs text-gray-400">目前分數 (SCORE)</div>
+                    <div id="score" class="text-xl sm:text-2xl font-bold text-orange-500">0</div>
+                </div>
+                <div>
+                    <div class="text-xs text-gray-400">目前等級 (LEVEL)</div>
+                    <div id="level" class="text-xl sm:text-2xl font-bold text-amber-500">1</div>
+                </div>
+                <div>
+                    <div class="text-xs text-gray-400">消除行數 (LINES)</div>
+                    <div id="lines" class="text-xl sm:text-2xl font-bold text-red-500">0</div>
+                </div>
+            </div>
+
+            <!-- 控制說明圖解 (桌面端顯示) -->
+            <div class="stone-card p-3 text-xs text-gray-400 space-y-1 hidden md:block">
+                <div class="font-bold text-orange-400 mb-1">操作說明：</div>
+                <div>← / → : 左右移動</div>
+                <div>↑ : 順時針旋轉</div>
+                <div>↓ : 軟降 (加速下落)</div>
+                <div>Space : 硬降 (直接到底)</div>
+                <div>C / Shift : 保留方塊</div>
+                <div>P : 暫停遊戲</div>
+            </div>
+        </div>
+
+        <!-- 中間面板：遊戲主要繪製畫布 (Main Game Canvas) -->
+        <div class="relative flex flex-col items-center justify-center order-1 md:order-2">
+            <!-- 遊戲畫布 -->
+            <canvas id="tetris-canvas" width="300" height="600" class="rounded-lg max-w-full h-auto"></canvas>
+
+            <!-- 遊戲結束/暫停覆蓋遮罩 (Game Over / Pause Overlay) -->
+            <div id="overlay" class="absolute inset-0 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center gap-4 rounded-lg hidden z-20">
+                <h2 id="overlay-title" class="text-3xl font-black lava-text">遊戲結束</h2>
+                <p id="overlay-msg" class="text-gray-300 text-sm">最終得分: <span id="final-score" class="text-orange-400 font-bold">0</span></p>
+                <button id="start-btn" class="lava-btn px-6 py-2.5 rounded-lg text-white font-bold text-sm tracking-wide cursor-pointer">
+                    開始遊戲
+                </button>
+            </div>
+        </div>
+
+        <!-- 右側面板：下一個方塊預覽 (Next Piece) & 控制按鈕 -->
+        <div class="flex flex-col gap-4 w-full md:w-1/4 order-3">
+            <!-- 下一個方塊 (Next Piece) -->
+            <div class="stone-card p-3 flex flex-col items-center">
+                <span class="text-xs font-bold text-gray-400 mb-2 tracking-wider">下一個 (NEXT)</span>
+                <canvas id="next-canvas" width="100" height="100" class="bg-black/50 rounded border border-red-950/50"></canvas>
+            </div>
+
+            <!-- 遊戲功能按鈕區域 -->
+            <div class="flex flex-col gap-2">
+                <button id="pause-btn" class="lava-btn py-2 px-4 rounded-lg text-white text-sm font-bold w-full">
+                    暫停遊戲 (P)
+                </button>
+                <button id="reset-btn" class="lava-btn py-2 px-4 rounded-lg text-white text-sm font-bold w-full">
+                    重新開始
+                </button>
+            </div>
+
+            <!-- 行動裝置虛擬按鍵 (僅在觸控螢幕或小螢幕顯示) -->
+            <div class="stone-card p-3 grid grid-cols-3 gap-2 md:hidden">
+                <button id="btn-hold" class="lava-btn p-3 rounded font-bold text-xs col-span-1">Hold</button>
+                <button id="btn-rotate" class="lava-btn p-3 rounded font-bold text-xs col-span-1">旋轉</button>
+                <button id="btn-drop" class="lava-btn p-3 rounded font-bold text-xs col-span-1">硬降</button>
+                <button id="btn-left" class="lava-btn p-3 rounded font-bold text-xs col-span-1">←</button>
+                <button id="btn-down" class="lava-btn p-3 rounded font-bold text-xs col-span-1">↓</button>
+                <button id="btn-right" class="lava-btn p-3 rounded font-bold text-xs col-span-1">→</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 遊戲核心邏輯 JavaScript -->
+    <script>
+        // ==========================================
+        // 1. 全域變數與宣告區
+        // ==========================================
+
+        // 取得動態熔岩背景畫布與繪圖上下文
+        const lavaCanvas = document.getElementById('lava-bg');
+        const lavaCtx = lavaCanvas.getContext('2d');
+
+        // 取得主遊戲畫布與上下文
+        const canvas = document.getElementById('tetris-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // 取得下一個方塊畫布與上下文
+        const nextCanvas = document.getElementById('next-canvas');
+        const nextCtx = nextCanvas.getContext('2d');
+
+        // 取得保留方塊畫布與上下文
+        const holdCanvas = document.getElementById('hold-canvas');
+        const holdCtx = holdCanvas.getContext('2d');
+
+        // 定義遊戲網格常數：行數(Rows) 20，列數(Cols) 10
+        const COLS = 10;
+        const ROWS = 20;
+        const BLOCK_SIZE = 30; // 每個方塊大小 (像素)
+
+        // 初始化遊戲主陣列網格 (20行 x 10列，填充0)
+        let grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+
+        // 遊戲狀態變數
+        let score = 0;
+        let level = 1;
+        let lines = 0;
+        let gameOver = false;
+        let isPaused = false;
+        let dropCounter = 0;
+        let dropInterval = 1000; // 下落間隔時間 (毫秒)
+        let lastTime = 0;
+        let canHold = true; // 每回合是否允許 Hold
+
+        // 當前方塊與保留方塊狀態
+        let currentPiece = null;
+        let nextPiece = null;
+        let holdPiece = null;
+
+        // ==========================================
+        // 2. 寫實金屬/寶石風格方塊顏色與材質定義
+        // ==========================================
+
+        // 定義7中Tetris方塊形狀 (I, J, L, O, S, T, Z)
+        const PIECES = [
+            // I 形 (紅寶石/熾熱熔岩)
+            {
+                shape: [
+                    [0, 0, 0, 0],
+                    [1, 1, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0]
+                ],
+                color: { main: '#ff2200', light: '#ff8866', dark: '#880000', core: '#ffeedd' }
+            },
+            // J 形 (藍鈷寶石)
+            {
+                shape: [
+                    [2, 0, 0],
+                    [2, 2, 2],
+                    [0, 0, 0]
+                ],
+                color: { main: '#0066ff', light: '#66a3ff', dark: '#002699', core: '#e6f0ff' }
+            },
+            // L 形 (黑金琥珀)
+            {
+                shape: [
+                    [0, 0, 3],
+                    [3, 3, 3],
+                    [0, 0, 0]
+                ],
+                color: { main: '#ff9900', light: '#ffc266', dark: '#995c00', core: '#fff5e6' }
+            },
+            // O 形 (黃金黃玉)
+            {
+                shape: [
+                    [4, 4],
+                    [4, 4]
+                ],
+                color: { main: '#ffcc00', light: '#ffeb80', dark: '#997a00', core: '#ffffec' }
+            },
+            // S 形 (翡翠綠石)
+            {
+                shape: [
+                    [0, 5, 5],
+                    [5, 5, 0],
+                    [0, 0, 0]
+                ],
+                color: { main: '#00cc44', light: '#66ff99', dark: '#006622', core: '#e6ffee' }
+            },
+            // T 形 (紫晶石)
+            {
+                shape: [
+                    [0, 6, 0],
+                    [6, 6, 6],
+                    [0, 0, 0]
+                ],
+                color: { main: '#cc00ff', light: '#e680ff', dark: '#660099', core: '#fae6ff' }
+            },
+            // Z 形 (黑曜熔岩赤石)
+            {
+                shape: [
+                    [7, 7, 0],
+                    [0, 7, 7],
+                    [0, 0, 0]
+                ],
+                color: { main: '#ff0055', light: '#ff80aa', dark: '#88002d', core: '#ffe6ee' }
+            }
+        ];
+
+        // ==========================================
+        // 3. 動態熔岩背景 (Lava Particle System)
+        // ==========================================
+
+        // 火花粒子陣列
+        let particles = [];
+        
+        // 調整畫布尺寸適應視窗
+        function resizeLavaCanvas() {
+            lavaCanvas.width = window.innerWidth;
+            lavaCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeLavaCanvas);
+        resizeLavaCanvas();
+
+        // 初始化火花粒子類別
+        class SparkParticle {
+            constructor() {
+                this.reset();
+            }
+            reset() {
+                this.x = Math.random() * lavaCanvas.width;
+                this.y = lavaCanvas.height + Math.random() * 50;
+                this.size = Math.random() * 3 + 1;
+                this.speedY = Math.random() * -2 - 1;
+                this.speedX = (Math.random() - 0.5) * 1.5;
+                this.life = Math.random() * 100 + 50;
+                this.opacity = Math.random() * 0.8 + 0.2;
+                this.color = Math.random() > 0.3 ? '#ff4500' : '#ffcc00';
+            }
+            update() {
+                this.x += this.speedX;
+                this.y += this.speedY;
+                this.life -= 1;
+                if (this.life <= 0 || this.y < -10) {
+                    this.reset();
+                }
+            }
+            draw() {
+                lavaCtx.save();
+                lavaCtx.globalAlpha = this.opacity * (this.life / 150);
+                lavaCtx.fillStyle = this.color;
+                lavaCtx.shadowBlur = 10;
+                lavaCtx.shadowColor = '#ff4500';
+                lavaCtx.beginPath();
+                lavaCtx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                lavaCtx.fill();
+                lavaCtx.restore();
+            }
+        }
+
+        // 產生粒子
+        for (let i = 0; i < 70; i++) {
+            particles.push(new SparkParticle());
+        }
+
+        // 岩漿流動背景渲染迴圈
+        let lavaTime = 0;
+        function renderLavaBackground() {
+            lavaTime += 0.01;
+            const w = lavaCanvas.width;
+            const h = lavaCanvas.height;
+
+            // 繪製漸層流動背景
+            const gradient = lavaCtx.createLinearGradient(0, 0, 0, h);
+            gradient.addColorStop(0, '#050202');
+            gradient.addColorStop(0.5, '#1a0503');
+            gradient.addColorStop(1, '#3a0802');
+            lavaCtx.fillStyle = gradient;
+            lavaCtx.fillRect(0, 0, w, h);
+
+            // 繪製底部流動熔岩輝光
+            lavaCtx.save();
+            const lavaGlow = lavaCtx.createRadialGradient(
+                w / 2, h + 100, 50,
+                w / 2, h, w * 0.8
+            );
+            lavaGlow.addColorStop(0, 'rgba(255, 68, 0, 0.6)');
+            lavaGlow.addColorStop(0.5, 'rgba(150, 20, 0, 0.3)');
+            lavaGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            lavaCtx.fillStyle = lavaGlow;
+            lavaCtx.fillRect(0, 0, w, h);
+            lavaCtx.restore();
+
+            // 更新並繪製上升的火花
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            requestAnimationFrame(renderLavaBackground);
+        }
+        renderLavaBackground();
+
+        // ==========================================
+        // 4. 寫實方塊渲染函數 (3D Bevel & Gem Style)
+        // ==========================================
+
+        /**
+         * 繪製高質感寫實風格單一方塊
+         * @param {CanvasRenderingContext2D} targetCtx - 繪製目標上下文
+         * @param {number} x - 畫布 X 座標 (像素)
+         * @param {number} y - 畫布 Y 座標 (像素)
+         * @param {number} typeIndex - 方塊種類索引 (1-7)
+         * @param {number} size - 方塊邊長大小
+         */
+        function drawRealisticBlock(targetCtx, x, y, typeIndex, size = BLOCK_SIZE) {
+            if (typeIndex === 0) return;
+
+            const colorTheme = PIECES[typeIndex - 1].color;
+
+            targetCtx.save();
+            targetCtx.translate(x, y);
+
+            // 1. 基底陰影
+            targetCtx.fillStyle = colorTheme.dark;
+            targetCtx.fillRect(0, 0, size, size);
+
+            // 2. 漸層主體內部 (營造 3D 斜角與發光感)
+            const mainGrad = targetCtx.createLinearGradient(0, 0, size, size);
+            mainGrad.addColorStop(0, colorTheme.light);
+            mainGrad.addColorStop(0.5, colorTheme.main);
+            mainGrad.addColorStop(1, colorTheme.dark);
+            targetCtx.fillStyle = mainGrad;
+            targetCtx.fillRect(2, 2, size - 4, size - 4);
+
+            // 3. 頂部高光斜角 (Highlight Bevel)
+            targetCtx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+            targetCtx.beginPath();
+            targetCtx.moveTo(0, 0);
+            targetCtx.lineTo(size, 0);
+            targetCtx.lineTo(size - 4, 4);
+            targetCtx.lineTo(4, 4);
+            targetCtx.lineTo(4, size - 4);
+            targetCtx.lineTo(0, size);
+            targetCtx.closePath();
+            targetCtx.fill();
+
+            // 4. 底部暗部斜角 (Shadow Bevel)
+            targetCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            targetCtx.beginPath();
+            targetCtx.moveTo(size, size);
+            targetCtx.lineTo(0, size);
+            targetCtx.lineTo(4, size - 4);
+            targetCtx.lineTo(size - 4, size - 4);
+            targetCtx.lineTo(size - 4, 4);
+            targetCtx.lineTo(size, 0);
+            targetCtx.closePath();
+            targetCtx.fill();
+
+            // 5. 核心晶體光效 (Inner Gem Core Glow)
+            targetCtx.fillStyle = colorTheme.core;
+            targetCtx.fillRect(size * 0.35, size * 0.35, size * 0.3, size * 0.3);
+
+            targetCtx.restore();
+        }
+
+        // ==========================================
+        // 5. 遊戲邏輯與物件生成
+        // ==========================================
+
+        // 產生新方塊物件
+        function createPiece(typeIndex) {
+            const pieceData = PIECES[typeIndex];
+            return {
+                shape: pieceData.shape.map(row => [...row]),
+                colorIndex: typeIndex + 1,
+                x: Math.floor(COLS / 2) - Math.ceil(pieceData.shape[0].length / 2),
+                y: 0
+            };
+        }
+
+        // 隨機取得方塊
+        function getRandomPiece() {
+            const randIndex = Math.floor(Math.random() * PIECES.length);
+            return createPiece(randIndex);
+        }
+
+        // 碰撞檢測 (Check Collision)
+        function collide(gridMatrix, piece) {
+            const shape = piece.shape;
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (shape[r][c] !== 0) {
+                        const newX = piece.x + c;
+                        const newY = piece.y + r;
+
+                        // 檢查邊界碰撞
+                        if (newX < 0 || newX >= COLS || newY >= ROWS) {
+                            return true;
+                        }
+
+                        // 檢查與已固定方塊的碰撞
+                        if (newY >= 0 && gridMatrix[newY][newX] !== 0) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // 將當前方塊固定 (Merge) 到遊戲網格
+        function merge(gridMatrix, piece) {
+            piece.shape.forEach((row, r) => {
+                row.forEach((val, c) => {
+                    if (val !== 0) {
+                        const gridY = piece.y + r;
+                        const gridX = piece.x + c;
+                        if (gridY >= 0 && gridY < ROWS && gridX >= 0 && gridX < COLS) {
+                            gridMatrix[gridY][gridX] = piece.colorIndex;
+                        }
+                    }
+                });
+            });
+        }
+
+        // 旋轉矩陣 (Clockwise Rotation)
+        function rotateMatrix(matrix) {
+            const N = matrix.length;
+            const result = Array.from({ length: N }, () => Array(N).fill(0));
+            for (let r = 0; r < N; r++) {
+                for (let c = 0; c < N; c++) {
+                    result[c][N - 1 - r] = matrix[r][c];
+                }
+            }
+            return result;
+        }
+
+        // 旋轉當前方塊 (含 Kick 踢牆機制)
+        function rotatePiece() {
+            if (!currentPiece) return;
+            const originalShape = currentPiece.shape;
+            const rotated = rotateMatrix(currentPiece.shape);
+            currentPiece.shape = rotated;
+
+            // 如果旋轉後產生碰撞，嘗試平移以避開障礙 (簡單踢牆)
+            let offset = 1;
+            while (collide(grid, currentPiece)) {
+                currentPiece.x += offset;
+                offset = -(offset + (offset > 0 ? 1 : -1));
+                if (Math.abs(offset) > currentPiece.shape[0].length) {
+                    // 無法順利旋轉，還原
+                    currentPiece.shape = originalShape;
+                    return;
+                }
+            }
+        }
+
+        // 計算影子位置 (Ghost Piece / Drop Preview)
+        function getGhostPosition() {
+            if (!currentPiece) return null;
+            const ghost = {
+                shape: currentPiece.shape,
+                colorIndex: currentPiece.colorIndex,
+                x: currentPiece.x,
+                y: currentPiece.y
+            };
+            while (!collide(grid, ghost)) {
+                ghost.y++;
+            }
+            ghost.y--; // 回退一步到有效位置
+            return ghost;
+        }
+
+        // 檢查並消除滿行 (Line Clear)
+        function clearLines() {
+            let linesCleared = 0;
+            outer: for (let r = ROWS - 1; r >= 0; r--) {
+                for (let c = 0; c < COLS; c++) {
+                    if (grid[r][c] === 0) {
+                        continue outer;
+                    }
+                }
+                // 該行全滿，移除該行並在頂部新增一行空行
+                const row = grid.splice(r, 1)[0].fill(0);
+                grid.unshift(row);
+                linesCleared++;
+                r++; // 重新檢查當前索引行
+            }
+
+            if (linesCleared > 0) {
+                // 計分系統 (1行:100, 2行:300, 3行:500, 4行:800)
+                const lineScores = [0, 100, 300, 500, 800];
+                score += lineScores[linesCleared] * level;
+                lines += linesCleared;
+
+                // 每消除 10 行提升一個等級，下落速度加快
+                level = Math.floor(lines / 10) + 1;
+                dropInterval = Math.max(100, 1000 - (level - 1) * 90);
+
+                updateUI();
+            }
+        }
+
+        // 產生下一個方塊並處理遊戲結束條件
+        function spawnNextPiece() {
+            currentPiece = nextPiece || getRandomPiece();
+            nextPiece = getRandomPiece();
+            canHold = true;
+
+            // 檢查新產生的方塊是否一生成就碰撞 (Game Over)
+            if (collide(grid, currentPiece)) {
+                gameOver = true;
+                showOverlay('遊戲結束', `最終得分: ${score}`);
+            }
+
+            drawNextPiece();
+        }
+
+        // 保留方塊功能 (Hold Piece)
+        function handleHold() {
+            if (!canHold || gameOver || isPaused) return;
+
+            if (!holdPiece) {
+                holdPiece = createPiece(currentPiece.colorIndex - 1);
+                spawnNextPiece();
+            } else {
+                const temp = holdPiece;
+                holdPiece = createPiece(currentPiece.colorIndex - 1);
+                currentPiece = createPiece(temp.colorIndex - 1);
+            }
+            canHold = false;
+            drawHoldPiece();
+        }
+
+        // 硬降 (Hard Drop: 直接降落至底部)
+        function hardDrop() {
+            if (gameOver || isPaused || !currentPiece) return;
+            while (!collide(grid, currentPiece)) {
+                currentPiece.y++;
+            }
+            currentPiece.y--;
+            stepDown();
+        }
+
+        // 方塊下落一步
+        function stepDown() {
+            if (gameOver || isPaused || !currentPiece) return;
+            currentPiece.y++;
+            if (collide(grid, currentPiece)) {
+                currentPiece.y--;
+                merge(grid, currentPiece);
+                clearLines();
+                spawnNextPiece();
+            }
+            dropCounter = 0;
+        }
+
+        // ==========================================
+        // 6. UI 畫面渲染與輔助預覽
+        // ==========================================
+
+        // 更新介面數值顯示
+        function updateUI() {
+            document.getElementById('score').innerText = score;
+            document.getElementById('level').innerText = level;
+            document.getElementById('lines').innerText = lines;
+        }
+
+        // 渲染主要遊戲畫布
+        function drawGame() {
+            // 清空畫布 (帶深色半透明 背景)
+            ctx.fillStyle = '#050202';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 繪製背景寫實岩漿風格網格線
+            ctx.strokeStyle = 'rgba(255, 69, 0, 0.08)';
+            ctx.lineWidth = 1;
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    ctx.strokeRect(c * BLOCK_SIZE, r * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                }
+            }
+
+            // 繪製已固定的方塊
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (grid[r][c] !== 0) {
+                        drawRealisticBlock(ctx, c * BLOCK_SIZE, r * BLOCK_SIZE, grid[r][c]);
+                    }
+                }
+            }
+
+            // 繪製當前動態方塊與影子 (Ghost Piece)
+            if (currentPiece) {
+                // 繪製落點預覽影子 (Ghost Piece)
+                const ghost = getGhostPosition();
+                if (ghost && !gameOver) {
+                    ctx.save();
+                    ctx.globalAlpha = 0.25;
+                    ghost.shape.forEach((row, r) => {
+                        row.forEach((val, c) => {
+                            if (val !== 0) {
+                                drawRealisticBlock(ctx, (ghost.x + c) * BLOCK_SIZE, (ghost.y + r) * BLOCK_SIZE, ghost.colorIndex);
+                            }
+                        });
+                    });
+                    ctx.restore();
+                }
+
+                // 繪製當前玩家操控的方塊
+                currentPiece.shape.forEach((row, r) => {
+                    row.forEach((val, c) => {
+                        if (val !== 0) {
+                            drawRealisticBlock(ctx, (currentPiece.x + c) * BLOCK_SIZE, (currentPiece.y + r) * BLOCK_SIZE, currentPiece.colorIndex);
+                        }
+                    });
+                });
+            }
+        }
+
+        // 渲染右側「下一個方塊」預覽區
+        function drawNextPiece() {
+            nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+            if (!nextPiece) return;
+            const shape = nextPiece.shape;
+            const size = 22; // 預覽尺寸微調
+            const offsetX = (nextCanvas.width - shape[0].length * size) / 2;
+            const offsetY = (nextCanvas.height - shape.length * size) / 2;
+
+            shape.forEach((row, r) => {
+                row.forEach((val, c) => {
+                    if (val !== 0) {
+                        drawRealisticBlock(nextCtx, offsetX + c * size, offsetY + r * size, nextPiece.colorIndex, size);
+                    }
+                });
+            });
+        }
+
+        // 渲染左側「保留方塊」預覽區
+        function drawHoldPiece() {
+            holdCtx.clearRect(0, 0, holdCanvas.width, holdCanvas.height);
+            if (!holdPiece) return;
+            const shape = holdPiece.shape;
+            const size = 22;
+            const offsetX = (holdCanvas.width - shape[0].length * size) / 2;
+            const offsetY = (holdCanvas.height - shape.length * size) / 2;
+
+            shape.forEach((row, r) => {
+                row.forEach((val, c) => {
+                    if (val !== 0) {
+                        drawRealisticBlock(holdCtx, offsetX + c * size, offsetY + r * size, holdPiece.colorIndex, size);
+                    }
+                });
+            });
+        }
+
+        // 顯示 Overlay (遊戲結束/暫停/開始)
+        function showOverlay(title, msg) {
+            document.getElementById('overlay-title').innerText = title;
+            document.getElementById('overlay-msg').innerHTML = msg;
+            document.getElementById('overlay').classList.remove('hidden');
+        }
+
+        // 隱藏 Overlay
+        function hideOverlay() {
+            document.getElementById('overlay').classList.add('hidden');
+        }
+
+        // ==========================================
+        // 7. 遊戲主迴圈 (Main Loop)
+        // ==========================================
+
+        function update(time = 0) {
+            const deltaTime = time - lastTime;
+            lastTime = time;
+
+            if (!isPaused && !gameOver) {
+                dropCounter += deltaTime;
+                if (dropCounter > dropInterval) {
+                    stepDown();
+                }
+                drawGame();
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        // 重置/初始化遊戲
+        function resetGame() {
+            grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+            score = 0;
+            level = 1;
+            lines = 0;
+            dropInterval = 1000;
+            gameOver = false;
+            isPaused = false;
+            holdPiece = null;
+            updateUI();
+            drawHoldPiece();
+            spawnNextPiece();
+            hideOverlay();
+        }
+
+        // 暫停遊戲切換
+        function togglePause() {
+            if (gameOver) return;
+            isPaused = !isPaused;
+            const pauseBtn = document.getElementById('pause-btn');
+            if (isPaused) {
+                pauseBtn.innerText = '繼續遊戲 (P)';
+                showOverlay('遊戲暫停', '按下繼續按鈕或 P 鍵繼續');
+            } else {
+                pauseBtn.innerText = '暫停遊戲 (P)';
+                hideOverlay();
+            }
+        }
+
+        // ==========================================
+        // 8. 事件監聽 (Keyboard & Mobile Touch Controls)
+        // ==========================================
+
+        // 鍵盤控制監聽
+        document.addEventListener('keydown', (e) => {
+            if (gameOver) return;
+
+            // 阻止方向鍵與空白鍵讓網頁滾動
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+                e.preventDefault();
+            }
+
+            if (e.key === 'p' || e.key === 'P') {
+                togglePause();
+                return;
+            }
+
+            if (isPaused) return;
+
+            switch (e.key) {
+                case 'ArrowLeft':
+                    currentPiece.x--;
+                    if (collide(grid, currentPiece)) currentPiece.x++;
+                    break;
+                case 'ArrowRight':
+                    currentPiece.x++;
+                    if (collide(grid, currentPiece)) currentPiece.x--;
+                    break;
+                case 'ArrowDown':
+                    stepDown();
+                    break;
+                case 'ArrowUp':
+                    rotatePiece();
+                    break;
+                case ' ':
+                    hardDrop();
+                    break;
+                case 'c':
+                case 'C':
+                case 'Shift':
+                    handleHold();
+                    break;
+            }
+        });
+
+        // 介面按鈕點擊監聽
+        document.getElementById('start-btn').addEventListener('click', resetGame);
+        document.getElementById('reset-btn').addEventListener('click', resetGame);
+        document.getElementById('pause-btn').addEventListener('click', togglePause);
+
+        // 行動端按鍵綁定
+        document.getElementById('btn-left').addEventListener('click', () => {
+            if (!isPaused && !gameOver && currentPiece) {
+                currentPiece.x--;
+                if (collide(grid, currentPiece)) currentPiece.x++;
+            }
+        });
+        document.getElementById('btn-right').addEventListener('click', () => {
+            if (!isPaused && !gameOver && currentPiece) {
+                currentPiece.x++;
+                if (collide(grid, currentPiece)) currentPiece.x--;
+            }
+        });
+        document.getElementById('btn-down').addEventListener('click', () => {
+            if (!isPaused && !gameOver) stepDown();
+        });
+        document.getElementById('btn-rotate').addEventListener('click', () => {
+            if (!isPaused && !gameOver) rotatePiece();
+        });
+        document.getElementById('btn-drop').addEventListener('click', () => {
+            if (!isPaused && !gameOver) hardDrop();
+        });
+        document.getElementById('btn-hold').addEventListener('click', () => {
+            if (!isPaused && !gameOver) handleHold();
+        });
+
+        // ==========================================
+        // 9. 遊戲啟動入口
+        // ==========================================
+        showOverlay('熔岩方塊', '點擊下方按鈕開始寫實火山挑戰！');
+        // 開始主繪製迴圈
+        requestAnimationFrame(update);
+
+    </script>
+</body>
+</html>
